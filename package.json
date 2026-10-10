@@ -1,0 +1,23 @@
+{
+  "name": "foody-smtp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env src/server.ts",
+    "dev": "node --watch --env-file=.env src/server.ts",
+    "send-test": "node --env-file=.env src/scripts/send-test.ts",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "nodemailer": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.5",
+    "@types/nodemailer": "^8.0.2",
+    "typescript": "^7.0.2"
+  }
+}

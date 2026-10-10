@@ -8,21 +8,34 @@ import { OtpService } from './otp/otp-service.ts';
 const config = loadConfig();
 
 const mailer = new SmtpMailer(config);
+const store = new MemoryOtpStore();
 const otp = new OtpService({
-  store: new MemoryOtpStore(),
+  store,
   mailer,
   hasher: createHmacHasher(config.otp.secret),
   options: config.otp,
 });
 
-try {
-  await mailer.verify();
-  console.log('SMTP terhubung');
-} catch (err) {
-  console.error('SMTP gagal terhubung:', err instanceof Error ? err.message : err);
-  console.error('Cek SMTP_* di .env. Server tetap jalan.');
-}
-
-createApp({ config, otp }).listen(config.http.port, () => {
-  console.log(`foody-smtp jalan di http://localhost:${config.http.port}`);
+const server = createApp({ config, otp }).listen(config.http.port, () => {
+  console.log(`foody-smtp jalan di port ${config.http.port}`);
 });
+
+// Cek SMTP di belakang supaya server (dan healthcheck) langsung siap, walau SMTP lambat/mati.
+mailer
+  .verify()
+  .then(() => console.log('SMTP terhubung'))
+  .catch((err) => {
+    console.error('SMTP gagal terhubung:', err instanceof Error ? err.message : err);
+    console.error('Cek SMTP_* di env. Server tetap jalan.');
+  });
+
+// Docker mengirim SIGTERM saat stop; tanpa handler ini proses menunggu 10 detik lalu dibunuh paksa.
+const shutdown = () => {
+  server.close(() => {
+    store.close();
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 5000).unref();
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

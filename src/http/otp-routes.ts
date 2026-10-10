@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { OtpService } from '../otp/otp-service.ts';
 import { OtpError } from '../otp/types.ts';
+import type { WindowLimiter } from './limiter.ts';
 
 const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
 const PURPOSE_RE = /^[a-z0-9_-]{1,32}$/;
@@ -8,7 +9,14 @@ const PURPOSE_RE = /^[a-z0-9_-]{1,32}$/;
 const isEmail = (v: unknown): v is string => typeof v === 'string' && v.length <= 254 && EMAIL_RE.test(v);
 const isPurpose = (v: unknown): v is string => typeof v === 'string' && PURPOSE_RE.test(v);
 
-export function otpRoutes(otp: OtpService, codeLength: number): Router {
+export interface OtpRoutesDeps {
+  otp: OtpService;
+  codeLength: number;
+  emailLimiter: WindowLimiter; // batas permintaan OTP per email per jam
+  dailyLimiter: WindowLimiter; // batas total email terkirim per hari (lindungi kuota SMTP)
+}
+
+export function otpRoutes({ otp, codeLength, emailLimiter, dailyLimiter }: OtpRoutesDeps): Router {
   const router = Router();
   const codeRe = new RegExp(`^\\d{${codeLength}}$`);
 
@@ -20,6 +28,14 @@ export function otpRoutes(otp: OtpService, codeLength: number): Router {
     }
     if (!isPurpose(purpose)) {
       res.status(400).json({ ok: false, error: '"purpose" tidak valid' });
+      return;
+    }
+
+    const perEmail = emailLimiter.take(email.trim().toLowerCase());
+    const daily = perEmail.ok ? dailyLimiter.take('all') : perEmail;
+    if (!daily.ok) {
+      res.set('Retry-After', String(daily.retryAfterSeconds));
+      res.status(429).json({ ok: false, error: 'Batas permintaan kode tercapai, coba lagi nanti', retryAfterSeconds: daily.retryAfterSeconds });
       return;
     }
 

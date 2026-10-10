@@ -1,9 +1,12 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import type { WindowLimiter } from './limiter.ts';
 
-export const cors = (allowedOrigin: string | undefined): RequestHandler => (req, res, next) => {
-  if (allowedOrigin) {
-    res.set('Access-Control-Allow-Origin', allowedOrigin);
+export const cors = (allowedOrigins: string[]): RequestHandler => (req, res, next) => {
+  const origin = req.get('origin');
+  res.vary('Origin');
+  if (origin && allowedOrigins.includes(origin)) {
+    res.set('Access-Control-Allow-Origin', origin);
     res.set('Access-Control-Allow-Headers', 'content-type, x-api-key');
     res.set('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   }
@@ -11,6 +14,12 @@ export const cors = (allowedOrigin: string | undefined): RequestHandler => (req,
     res.sendStatus(204);
     return;
   }
+  next();
+};
+
+export const securityHeaders: RequestHandler = (_req, res, next) => {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Cache-Control', 'no-store');
   next();
 };
 
@@ -26,26 +35,12 @@ export const apiKeyAuth = (apiKey: string): RequestHandler => {
   };
 };
 
-export const rateLimit = (maxPerMinute: number): RequestHandler => {
-  const hits = new Map<string, number[]>();
-  const timer = setInterval(() => {
-    const cutoff = Date.now() - 60_000;
-    for (const [ip, times] of hits) {
-      if (times.every((t) => t < cutoff)) hits.delete(ip);
-    }
-  }, 60_000);
-  timer.unref();
-
-  return (req, res, next) => {
-    const ip = req.ip ?? 'unknown';
-    const now = Date.now();
-    const recent = (hits.get(ip) ?? []).filter((t) => now - t < 60_000);
-    if (recent.length >= maxPerMinute) {
-      res.status(429).json({ ok: false, error: 'Terlalu banyak request' });
-      return;
-    }
-    recent.push(now);
-    hits.set(ip, recent);
-    next();
-  };
+export const rateLimitByIp = (limiter: WindowLimiter): RequestHandler => (req, res, next) => {
+  const result = limiter.take(req.ip ?? 'unknown');
+  if (!result.ok) {
+    res.set('Retry-After', String(result.retryAfterSeconds));
+    res.status(429).json({ ok: false, error: 'Terlalu banyak request', retryAfterSeconds: result.retryAfterSeconds });
+    return;
+  }
+  next();
 };

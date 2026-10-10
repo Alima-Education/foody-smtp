@@ -1,0 +1,10 @@
+node_modules
+.env
+.env.*
+!.env.example
+*.md
+Dockerfile
+.dockerignore
+.git
+tsconfig.json
+src/**/*.test.ts
